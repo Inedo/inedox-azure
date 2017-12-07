@@ -87,12 +87,12 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                     seekToEnd = false;
                     break;
                 case FileMode.Open:
-                    wantExisting = false;
-                    loadExisting = false;
+                    wantExisting = true;
+                    loadExisting = true;
                     seekToEnd = false;
                     break;
                 case FileMode.OpenOrCreate:
-                    wantExisting = false;
+                    wantExisting = null;
                     loadExisting = true;
                     seekToEnd = false;
                     break;
