@@ -18,7 +18,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
     [Description("A file system backed by Microsoft Azure Blob Storage.")]
     [PersistFrom("Inedo.ProGet.Extensions.PackageStores.Azure.AzurePackageStore,ProGetCoreEx")]
     [PersistFrom("Inedo.ProGet.Extensions.Azure.PackageStores.AzurePackageStore,Azure")]
-    public sealed class AzureFileSystem : FileSystem
+    public sealed class AzureFileSystem : FileSystem, IExternalFileSystem
     {
         private static readonly LazyRegex MultiSlashPattern = new LazyRegex(@"/{2,}");
 
@@ -55,6 +55,18 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
         private CloudBlobContainer Container => this.cloudBlobContainer.Value;
         private string Prefix => string.IsNullOrEmpty(this.TargetPath) || this.TargetPath.EndsWith("/") ? this.TargetPath : (this.TargetPath + "/");
 
+        public Task<string> GetExternalDownloadUrlAsync(string fileName)
+        {
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlobReference(path);
+
+            return Task.FromResult(blob.Uri.OriginalString + blob.GetSharedAccessSignature(new SharedAccessBlobPolicy
+            {
+                Permissions = SharedAccessBlobPermissions.Read,
+                SharedAccessStartTime = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10),
+                SharedAccessExpiryTime = DateTimeOffset.UtcNow + TimeSpan.FromHours(6)
+            }));
+        }
         public async override Task<Stream> OpenFileAsync(string fileName, FileMode mode, FileAccess access, FileShare share, bool requireRandomAccess)
         {
             var path = this.BuildPath(fileName);
