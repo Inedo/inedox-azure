@@ -1,6 +1,6 @@
 # inedox-azure
 
-[![Build status](https://ci.appveyor.com/api/projects/status/u75olukdsv48uxkr/branch/master?svg=true)](https://ci.appveyor.com/project/Inedo/inedox-azure/branch/master)
+[![Build status](https://buildmaster.inedo.com/api/ci-badges/image?API_Key=badges&$ApplicationId=32)](https://buildmaster.inedo.com/api/ci-badges/link?API_Key=badges&$ApplicationId=32)
 
 Contains a ProGet Package Store backed by Azure.
 
