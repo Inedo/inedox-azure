@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using System.Runtime.InteropServices;
+using Inedo.Extensibility;
 
 [assembly: AssemblyTitle("Azure")]
 [assembly: AssemblyDescription("Contains a ProGet Package Store backed by Azure.")]
@@ -14,3 +15,4 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyVersion("1.0.1")]
 [assembly: AssemblyFileVersion("1.0.1")]
+[assembly: AppliesToAttribute(InedoProduct.ProGet)]
