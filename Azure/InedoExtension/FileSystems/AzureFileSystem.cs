@@ -57,17 +57,25 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
 
         public async override Task<Stream> OpenFileAsync(string fileName, FileMode mode, FileAccess access, FileShare share, bool requireRandomAccess)
         {
-            var path = this.BuildPath(fileName);
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            var path = this.BuildPath(fileName.ToLower());
             var blob = this.Container.GetBlobReference(path);
 
+            // Fast path: just download as a stream
             if (mode == FileMode.Open && access == FileAccess.Read && !requireRandomAccess)
             {
                 if (!await blob.ExistsAsync().ConfigureAwait(false))
                 {
+                    // old versions of extension used mixed case
+                    var mixedCasedBlob = this.Container.GetBlobReference(fileName);
+                    if (await mixedCasedBlob.ExistsAsync().ConfigureAwait(false))
+                        return await mixedCasedBlob.OpenReadAsync().ConfigureAwait(false);
+
                     throw new FileNotFoundException("File not found: " + fileName, fileName);
                 }
 
-                // Fast path: just download as a stream
                 return await blob.OpenReadAsync().ConfigureAwait(false);
             }
 
