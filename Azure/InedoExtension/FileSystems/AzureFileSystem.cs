@@ -369,10 +369,11 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                     {
                         if (this.CanWrite)
                         {
-                            this.FinishUploadAsync().WaitAndUnwrapExceptions();
+                            this.FinishUploadAsync().GetAwaiter().GetResult();
                         }
                     }
                 }
+
                 base.Dispose(disposing);
             }
 
