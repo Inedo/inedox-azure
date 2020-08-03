@@ -60,7 +60,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
-            var path = this.BuildPath(fileName.ToLower());
+            var path = this.BuildPath(fileName.ToLowerInvariant());
             var blob = this.Container.GetBlobReference(path);
 
             // Fast path: just download as a stream
