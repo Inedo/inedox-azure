@@ -9,8 +9,8 @@ using Inedo.Documentation;
 using Inedo.Extensibility.FileSystems;
 using Inedo.IO;
 using Inedo.Serialization;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.Azure.Storage;
+using Microsoft.Azure.Storage.Blob;
 
 namespace Inedo.ProGet.Extensions.Azure.PackageStores
 {
@@ -22,9 +22,9 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
     {
         private static readonly LazyRegex MultiSlashPattern = new LazyRegex(@"/{2,}");
 
-        private Lazy<CloudStorageAccount> cloudStorageAccount;
-        private Lazy<CloudBlobClient> cloudBlobClient;
-        private Lazy<CloudBlobContainer> cloudBlobContainer;
+        private readonly Lazy<CloudStorageAccount> cloudStorageAccount;
+        private readonly Lazy<CloudBlobClient> cloudBlobClient;
+        private readonly Lazy<CloudBlobContainer> cloudBlobContainer;
 
         public AzureFileSystem()
         {
