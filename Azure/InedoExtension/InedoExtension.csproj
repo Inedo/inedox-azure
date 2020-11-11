@@ -3,13 +3,13 @@
     <AssemblyName>Azure</AssemblyName>
     <RootNamespace>Inedo.Extensions.Azure</RootNamespace>
     <OutputType>Library</OutputType>
-    <TargetFrameworks>net452;netcoreapp3.1</TargetFrameworks>
+    <TargetFrameworks>net452;net5.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.0" />
-    <PackageReference Include="Inedo.SDK" Version="1.9.0-ci.37">
+    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.2" />
+    <PackageReference Include="Inedo.SDK" Version="1.9.0-ci.44">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
