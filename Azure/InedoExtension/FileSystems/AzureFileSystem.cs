@@ -224,24 +224,26 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
         }
         public async override Task<FileSystemItem> GetInfoAsync(string path)
         {
-            if (await this.DirectoryExistsAsync(path).ConfigureAwait(false))
-                return new AzureFileSystemItem(PathEx.GetFileName(path));
+            var path2 = this.BuildPath(path);
+
+            if (await this.DirectoryExistsAsync(path2).ConfigureAwait(false))
+                return new AzureFileSystemItem(PathEx.GetFileName(path2));
 
             try
             {
-                var file = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(path)).ConfigureAwait(false);
+                var file = await this.Container.GetBlobReferenceFromServerAsync(path2).ConfigureAwait(false);
                 await file.FetchAttributesAsync().ConfigureAwait(false);
                 if (!await file.ExistsAsync().ConfigureAwait(false))
                 {
-                    var directory = this.Container.GetDirectoryReference(this.BuildPath(path));
+                    var directory = this.Container.GetDirectoryReference(path2);
                     var contents = await directory.ListBlobsSegmentedAsync(true, BlobListingDetails.None, 1, null, null, null).ConfigureAwait(false);
                     if (contents.Results.Any())
-                        return new AzureFileSystemItem(PathEx.GetFileName(path));
+                        return new AzureFileSystemItem(PathEx.GetFileName(path2));
 
                     return null;
                 }
 
-                return new AzureFileSystemItem(PathEx.GetFileName(path), file.Properties.Length, file.Properties.LastModified);
+                return new AzureFileSystemItem(PathEx.GetFileName(path2), file.Properties.Length, file.Properties.LastModified);
             }
             catch
             {
@@ -254,7 +256,8 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
-            var blob = this.Container.GetBlockBlobReference(fileName);
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlockBlobReference(path);
             return Task.FromResult<UploadStream>(new BlobUploadStream(blob));
         }
         public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -266,7 +269,8 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (state != null && state.Length >= 4)
                 blockCount = BitConverter.ToInt32(state, 0);
 
-            var blob = this.Container.GetBlockBlobReference(fileName);
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlockBlobReference(path);
             return Task.FromResult<UploadStream>(new BlobUploadStream(blob, blockCount));
         }
         public override async Task CompleteResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -278,8 +282,8 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (state != null && state.Length >= 4)
                 blockCount = BitConverter.ToInt32(state, 0);
 
-            var blob = this.Container.GetBlockBlobReference(fileName);
-
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlockBlobReference(path);
             if (blockCount == 0)
             {
                 using var s = await blob.OpenWriteAsync(cancellationToken).ConfigureAwait(false);
@@ -295,7 +299,8 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
-            var blob = this.Container.GetBlockBlobReference(fileName);
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlockBlobReference(path);
             return blob.DeleteIfExistsAsync(cancellationToken);
         }
 
