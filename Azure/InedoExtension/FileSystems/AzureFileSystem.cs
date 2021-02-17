@@ -20,21 +20,21 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
     [PersistFrom("Inedo.ProGet.Extensions.Azure.PackageStores.AzurePackageStore,Azure")]
     public sealed class AzureFileSystem : FileSystem
     {
-        private static readonly LazyRegex MultiSlashPattern = new LazyRegex(@"/{2,}");
-
+        private static readonly LazyRegex MultiSlashPattern = new(@"/{2,}");
         private readonly Lazy<CloudStorageAccount> cloudStorageAccount;
         private readonly Lazy<CloudBlobClient> cloudBlobClient;
         private readonly Lazy<CloudBlobContainer> cloudBlobContainer;
+        private readonly HashSet<string> virtualDirectories = new();
 
         public AzureFileSystem()
         {
-            this.cloudStorageAccount = new Lazy<CloudStorageAccount>(() => CloudStorageAccount.Parse(this.ConnectionString));
-            this.cloudBlobClient = new Lazy<CloudBlobClient>(() => this.Account.CreateCloudBlobClient());
-            this.cloudBlobContainer = new Lazy<CloudBlobContainer>(() => this.Client.GetContainerReference(this.ContainerName));
+            this.cloudStorageAccount = new(() => CloudStorageAccount.Parse(this.ConnectionString));
+            this.cloudBlobClient = new(() => this.Account.CreateCloudBlobClient());
+            this.cloudBlobContainer = new(() => this.Client.GetContainerReference(this.ContainerName));
         }
 
         [Required]
-        [Persistent]
+        [Persistent(Encrypted = true)]
         [DisplayName("Connection string")]
         [Description("A Microsoft Azure connection string, like <code>DefaultEndpointsProtocol=https;AccountName=account-name;AccountKey=account-key</code>")]
         public string ConnectionString { get; set; }
@@ -55,209 +55,279 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
         private CloudBlobContainer Container => this.cloudBlobContainer.Value;
         private string Prefix => string.IsNullOrEmpty(this.TargetPath) || this.TargetPath.EndsWith("/") ? this.TargetPath : (this.TargetPath + "/");
 
-        public async override Task<Stream> OpenFileAsync(string fileName, FileMode mode, FileAccess access, FileShare share, bool requireRandomAccess)
+        public override async Task<Stream> OpenReadAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
-            var path = this.BuildPath(fileName.ToLowerInvariant());
-            var blob = this.Container.GetBlobReference(path);
+            var path = this.BuildPath(fileName);
+            if (!await this.Container.ExistsAsync(cancellationToken).ConfigureAwait(false))
+                throw new FileNotFoundException();
 
-            // Fast path: just download as a stream
-            if (mode == FileMode.Open && access == FileAccess.Read && !requireRandomAccess)
-            {
-                if (!await blob.ExistsAsync().ConfigureAwait(false))
-                {
-                    // old versions of extension used mixed case
-                    var mixedCasedBlob = this.Container.GetBlobReference(fileName);
-                    if (await mixedCasedBlob.ExistsAsync().ConfigureAwait(false))
-                        return await mixedCasedBlob.OpenReadAsync().ConfigureAwait(false);
-
-                    throw new FileNotFoundException("File not found: " + fileName, fileName);
-                }
-
-                return await blob.OpenReadAsync().ConfigureAwait(false);
-            }
-
-            bool? wantExisting;
-            bool loadExisting;
-            bool seekToEnd;
-            switch (mode)
-            {
-                case FileMode.CreateNew:
-                    wantExisting = true;
-                    loadExisting = false;
-                    seekToEnd = false;
-                    break;
-                case FileMode.Create:
-                    wantExisting = null;
-                    loadExisting = false;
-                    seekToEnd = false;
-                    break;
-                case FileMode.Open:
-                    wantExisting = true;
-                    loadExisting = true;
-                    seekToEnd = false;
-                    break;
-                case FileMode.OpenOrCreate:
-                    wantExisting = null;
-                    loadExisting = true;
-                    seekToEnd = false;
-                    break;
-                case FileMode.Truncate:
-                    wantExisting = true;
-                    loadExisting = false;
-                    seekToEnd = false;
-                    break;
-                case FileMode.Append:
-                    wantExisting = null;
-                    loadExisting = true;
-                    seekToEnd = true;
-                    break;
-                default:
-                    throw new NotSupportedException("Unsupported FileMode: " + mode.ToString());
-            }
-
-            Stream stream = null;
-
-            if (loadExisting)
-            {
-                if (!await blob.ExistsAsync().ConfigureAwait(false))
-                {
-                    if (wantExisting == true)
-                    {
-                        throw new FileNotFoundException("File not found: " + fileName, fileName);
-                    }
-                }
-                else
-                {
-                    using (var responseStream = await blob.OpenReadAsync().ConfigureAwait(false))
-                    {
-                        stream = TemporaryStream.Create(blob.Properties.Length);
-                        try
-                        {
-                            await responseStream.CopyToAsync(stream).ConfigureAwait(false);
-                        }
-                        catch
-                        {
-                            try { stream.Dispose(); } catch { }
-                            stream = null;
-                            throw;
-                        }
-                    }
-                }
-            }
-            else if (wantExisting.HasValue)
-            {
-                var exists = await blob.ExistsAsync().ConfigureAwait(false);
-                if (exists && wantExisting == false)
-                {
-                    throw new IOException("File already exists: " + fileName);
-                }
-                else if (!exists && wantExisting == true)
-                {
-                    throw new FileNotFoundException("File not found: " + fileName, fileName);
-                }
-            }
-
-            if (stream == null)
-            {
-                stream = TemporaryStream.Create(10 * 1024 * 1024);
-            }
-            else
-            {
-                try
-                {
-                    stream.Seek(0, seekToEnd ? SeekOrigin.End : SeekOrigin.Begin);
-                }
-                catch
-                {
-                    try { stream.Dispose(); } catch { }
-                    throw;
-                }
-            }
-
-            return new AzureStream(this, stream, path, (access & FileAccess.Write) != 0);
+            var file = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(path), cancellationToken).ConfigureAwait(false);
+            await file.FetchAttributesAsync(cancellationToken).ConfigureAwait(false);
+            return new PositionStream(await file.OpenReadAsync(cancellationToken).ConfigureAwait(false), file.Properties.Length);
         }
+        public override async Task<Stream> CreateFileAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            var path = this.BuildPath(fileName);
+            var blob = this.Container.GetBlockBlobReference(path);
+
+            var stream = await blob.OpenWriteAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return new AzureWriteStream(stream);
+            }
+            catch
+            {
+                stream?.Dispose();
+                throw;
+            }
+        }
+
         public override async Task CopyFileAsync(string sourceName, string targetName, bool overwrite)
         {
             var source = this.Container.GetBlobReference(this.BuildPath(sourceName));
             var target = this.Container.GetBlobReference(this.BuildPath(targetName));
-            if (!overwrite && await target.ExistsAsync().ConfigureAwait(false))
+
+            if (!await BlobExistsAsync(source).ConfigureAwait(false))
+                throw new FileNotFoundException($"{sourceName} not found.");
+
+            if (!overwrite && await BlobExistsAsync(target).ConfigureAwait(false))
+                throw new IOException($"{targetName} exists, but overwrite is not allowed.");
+
+            _ = await source.AcquireLeaseAsync(null).ConfigureAwait(false);
+            try
             {
-                throw new IOException("Destination file exists, but overwrite is not allowed: " + targetName);
+                await target.StartCopyAsync(source.Uri).ConfigureAwait(false);
+                while (target.CopyState?.Status == CopyStatus.Pending)
+                {
+                    await Task.Delay(1000).ConfigureAwait(false);
+                    await target.FetchAttributesAsync().ConfigureAwait(false);
+                }
             }
-            await target.StartCopyAsync(source.Uri).ConfigureAwait(false);
-            while (target.CopyState?.Status == CopyStatus.Pending)
+            finally
             {
-                await Task.Delay(1000).ConfigureAwait(false);
-                await target.FetchAttributesAsync().ConfigureAwait(false);
+                if (source != null)
+                {
+                    await source.FetchAttributesAsync().ConfigureAwait(false);
+                    if (source.Properties.LeaseState != LeaseState.Available)
+                        await source.BreakLeaseAsync(TimeSpan.Zero).ConfigureAwait(false);
+                }
             }
         }
         public override async Task DeleteFileAsync(string fileName)
         {
-            await this.Container.GetBlobReference(this.BuildPath(fileName)).DeleteIfExistsAsync().ConfigureAwait(false);
+            var blob = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(fileName)).ConfigureAwait(false);
+            await blob.DeleteIfExistsAsync().ConfigureAwait(false);
         }
         public override Task CreateDirectoryAsync(string directoryName)
         {
-            return InedoLib.NullTask;
+            if (!string.IsNullOrEmpty(directoryName))
+            {
+                var path = this.BuildPath(directoryName);
+                if (!string.IsNullOrEmpty(path))
+                {
+                    if (this.virtualDirectories.Add(path))
+                    {
+                        var parts = path.Split('/');
+                        for (int i = 1; i < parts.Length; i++)
+                            this.virtualDirectories.Add(string.Join("/", parts.Take(i)));
+                    }
+                }
+            }
+
+            return InedoLib.CompletedTask;
         }
+
+        public override async Task<bool> FileExistsAsync(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return false;
+
+            try
+            {
+                var path = this.BuildPath(fileName);
+                var blob = await this.Container.GetBlobReferenceFromServerAsync(path).ConfigureAwait(false);
+                return await blob.ExistsAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        public override Task<bool> DirectoryExistsAsync(string directoryName)
+        {
+            return Task.FromResult(dirExists());
+
+            bool dirExists()
+            {
+                if (string.IsNullOrEmpty(directoryName))
+                    return true;
+
+                var path = this.BuildPath(directoryName);
+
+                if (string.IsNullOrEmpty(path))
+                    return true;
+                if (this.virtualDirectories.Contains(path))
+                    return true;
+
+                var parentPath = PathEx.GetDirectoryName(path);
+                var childName = PathEx.GetFileName(path);
+
+                var parentDir = this.Container.GetDirectoryReference(parentPath);
+                return parentDir
+                    .ListBlobs()
+                    .OfType<CloudBlobDirectory>()
+                    .Any(d => PathEx.GetFileName(d.Prefix) == childName);
+            }
+        }
+
         public async override Task DeleteDirectoryAsync(string directoryName, bool recursive)
         {
             if (!recursive)
-            {
                 return;
-            }
 
             var directory = this.Container.GetDirectoryReference(this.BuildPath(directoryName));
             var files = directory.ListBlobs(true);
             foreach (var file in files)
             {
-                var blob = file as CloudBlob;
-                if (blob != null)
-                {
+                if (file is CloudBlob blob)
                     await blob.DeleteAsync().ConfigureAwait(false);
-                }
             }
         }
         public override Task<IEnumerable<FileSystemItem>> ListContentsAsync(string path)
         {
-            var directory = this.Container.GetDirectoryReference(this.BuildPath(path));
+            var path2 = this.BuildPath(path);
+            var directory = this.Container.GetDirectoryReference(path2);
             var files = directory.ListBlobs();
             var contents = new List<FileSystemItem>();
             foreach (var file in files)
             {
-                var dir = file as CloudBlobDirectory;
-                if (dir != null)
-                {
+                if (file is CloudBlobDirectory dir)
                     contents.Add(new AzureFileSystemItem(PathEx.GetFileName(dir.Prefix)));
-                }
-                var blob = file as ICloudBlob;
-                if (blob != null)
-                {
-                    contents.Add(new AzureFileSystemItem(PathEx.GetFileName(blob.Name), blob.Properties.Length));
-                }
+
+                if (file is ICloudBlob blob)
+                    contents.Add(new AzureFileSystemItem(PathEx.GetFileName(blob.Name), blob.Properties.Length, blob.Properties.LastModified));
+            }
+
+            foreach (var d in this.GetVirtualDirectories(path2))
+            {
+                if (!contents.Any(i => i.Name == d))
+                    contents.Add(new AzureFileSystemItem(d));
             }
 
             return Task.FromResult((IEnumerable<FileSystemItem>)contents);
         }
         public async override Task<FileSystemItem> GetInfoAsync(string path)
         {
-            var file = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(path)).ConfigureAwait(false);
-            if (!await file.ExistsAsync().ConfigureAwait(false))
+            if (await this.DirectoryExistsAsync(path).ConfigureAwait(false))
+                return new AzureFileSystemItem(PathEx.GetFileName(path));
+
+            try
             {
-                var directory = this.Container.GetDirectoryReference(this.BuildPath(path));
-                var contents = await directory.ListBlobsSegmentedAsync(true, BlobListingDetails.None, 1, null, null, null).ConfigureAwait(false);
-                if (contents.Results.Any())
+                var file = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(path)).ConfigureAwait(false);
+                await file.FetchAttributesAsync().ConfigureAwait(false);
+                if (!await file.ExistsAsync().ConfigureAwait(false))
                 {
-                    return new AzureFileSystemItem(PathEx.GetFileName(path));
+                    var directory = this.Container.GetDirectoryReference(this.BuildPath(path));
+                    var contents = await directory.ListBlobsSegmentedAsync(true, BlobListingDetails.None, 1, null, null, null).ConfigureAwait(false);
+                    if (contents.Results.Any())
+                        return new AzureFileSystemItem(PathEx.GetFileName(path));
+
+                    return null;
                 }
+
+                return new AzureFileSystemItem(PathEx.GetFileName(path), file.Properties.Length, file.Properties.LastModified);
+            }
+            catch
+            {
                 return null;
             }
-
-            return new AzureFileSystemItem(PathEx.GetFileName(path), file.Properties.Length);
         }
 
+        public override Task<UploadStream> BeginResumableUploadAsync(string fileName, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            var blob = this.Container.GetBlockBlobReference(fileName);
+            return Task.FromResult<UploadStream>(new BlobUploadStream(blob));
+        }
+        public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            int blockCount = 0;
+            if (context != null && context.Length >= 4)
+                blockCount = BitConverter.ToInt32(context, 0);
+
+            var blob = this.Container.GetBlockBlobReference(fileName);
+            return Task.FromResult<UploadStream>(new BlobUploadStream(blob, blockCount));
+        }
+        public override async Task CompleteResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            int blockCount = 0;
+            if (context != null && context.Length >= 4)
+                blockCount = BitConverter.ToInt32(context, 0);
+
+            var blob = this.Container.GetBlockBlobReference(fileName);
+
+            if (blockCount == 0)
+            {
+                using var s = await blob.OpenWriteAsync(cancellationToken).ConfigureAwait(false);
+                await s.CommitAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await blob.PutBlockListAsync(Enumerable.Range(1, blockCount).Select(i => Convert.ToBase64String(BitConverter.GetBytes(i))), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        public override Task CancelResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentNullException(nameof(fileName));
+
+            var blob = this.Container.GetBlockBlobReference(fileName);
+            return blob.DeleteIfExistsAsync(cancellationToken);
+        }
+
+        private IEnumerable<string> GetVirtualDirectories(string path)
+        {
+            return getNames().Distinct();
+
+            IEnumerable<string> getNames()
+            {
+                if (string.IsNullOrEmpty(path))
+                {
+                    foreach (var p in this.virtualDirectories)
+                        yield return p.Split(new[] { '/' }, 2, StringSplitOptions.None)[0];
+                }
+                else
+                {
+                    var path2 = path;
+                    if (!path2.EndsWith("/"))
+                        path2 += "/";
+
+                    foreach (var p in this.virtualDirectories)
+                    {
+                        if (p.StartsWith(path2))
+                        {
+                            var remainder = p.Substring(path2.Length);
+                            if (!string.IsNullOrEmpty(remainder))
+                                yield return remainder.Split(new[] { '/' }, 2, StringSplitOptions.None)[0];
+                        }
+                    }
+                }
+            }
+        }
         private string BuildPath(string path)
         {
             // Collapse slashes.
@@ -265,8 +335,24 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
 
             return this.Prefix + path;
         }
+        private static async Task<bool> BlobExistsAsync(CloudBlob blob)
+        {
+            if (blob == null)
+                return false;
 
-        private class AzureFileSystemItem : FileSystemItem
+            try
+            {
+                await blob.FetchAttributesAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                return false;
+            }
+
+            return await blob.ExistsAsync().ConfigureAwait(false);
+        }
+
+        private sealed class AzureFileSystemItem : FileSystemItem
         {
             public AzureFileSystemItem(string name)
             {
@@ -274,36 +360,30 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                 this.Size = null;
                 this.IsDirectory = true;
             }
-
-            public AzureFileSystemItem(string name, long size)
+            public AzureFileSystemItem(string name, long size, DateTimeOffset? lastModifyTime)
             {
                 this.Name = name;
                 this.Size = size;
                 this.IsDirectory = false;
+                this.LastModifyTime = lastModifyTime;
             }
 
             public override string Name { get; }
             public override long? Size { get; }
             public override bool IsDirectory { get; }
+            public override DateTimeOffset? LastModifyTime { get; }
         }
 
-        private sealed class AzureStream : Stream
+        private sealed class AzureWriteStream : Stream
         {
-            private readonly AzureFileSystem outer;
-            private readonly Stream inner;
-            private readonly string path;
+            private readonly CloudBlobStream inner;
+            private bool disposed;
 
-            public AzureStream(AzureFileSystem outer, Stream inner, string path, bool canWrite)
-            {
-                this.outer = outer;
-                this.inner = inner;
-                this.path = path;
-                this.CanWrite = canWrite;
-            }
+            public AzureWriteStream(CloudBlobStream inner) => this.inner = inner;
 
-            public override bool CanRead => true;
-            public override bool CanSeek => true;
-            public override bool CanWrite { get; }
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
             public override long Length => this.inner.Length;
             public override long Position
             {
@@ -311,81 +391,51 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                 set => this.inner.Position = value;
             }
 
-            public override void Flush()
-            {
-                // no-op
-            }
+            public override void Flush() => this.inner.Flush();
+            public override Task FlushAsync(CancellationToken cancellationToken) => this.inner.FlushAsync(cancellationToken);
+            public override int Read(byte[] buffer, int offset, int count) => this.inner.Read(buffer, offset, count);
+            public override long Seek(long offset, SeekOrigin origin) => this.inner.Seek(offset, origin);
+            public override void SetLength(long value) => this.inner.SetLength(value);
+            public override void Write(byte[] buffer, int offset, int count) => this.inner.Write(buffer, offset, count);
+            public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) => this.inner.CopyToAsync(destination, bufferSize, cancellationToken);
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => this.inner.ReadAsync(buffer, offset, count, cancellationToken);
+            public override int ReadByte() => this.inner.ReadByte();
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => this.inner.WriteAsync(buffer, offset, count, cancellationToken);
+            public override void WriteByte(byte value) => this.inner.WriteByte(value);
 
-            public override int Read(byte[] buffer, int offset, int count)
+#if !NET452
+            public override int Read(Span<byte> buffer) => this.inner.Read(buffer);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => this.inner.ReadAsync(buffer, cancellationToken);
+            public override void Write(ReadOnlySpan<byte> buffer) => this.inner.Write(buffer);
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) => this.inner.WriteAsync(buffer, cancellationToken);
+            public override void CopyTo(Stream destination, int bufferSize) => this.inner.CopyTo(destination, bufferSize);
+            public override async ValueTask DisposeAsync()
             {
-                return this.inner.Read(buffer, offset, count);
-            }
+                if (!this.disposed)
+                {
+                    await this.inner.CommitAsync().ConfigureAwait(false);
+                    await this.inner.DisposeAsync().ConfigureAwait(false);
+                    this.disposed = true;
+                }
 
-            public override long Seek(long offset, SeekOrigin origin)
-            {
-                return this.inner.Seek(offset, origin);
+                await base.DisposeAsync().ConfigureAwait(false);
             }
-
-            public override void SetLength(long value)
-            {
-                this.inner.SetLength(value);
-            }
-
-            public override void Write(byte[] buffer, int offset, int count)
-            {
-                this.inner.Write(buffer, offset, count);
-            }
-
-            public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
-            {
-                return this.inner.CopyToAsync(destination, bufferSize, cancellationToken);
-            }
-
-            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            {
-                return this.inner.ReadAsync(buffer, offset, count, cancellationToken);
-            }
-
-            public override int ReadByte()
-            {
-                return this.inner.ReadByte();
-            }
-
-            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            {
-                return this.inner.WriteAsync(buffer, offset, count, cancellationToken);
-            }
-
-            public override void WriteByte(byte value)
-            {
-                this.inner.WriteByte(value);
-            }
+#endif
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing)
+                if (!this.disposed)
                 {
-                    using (this.inner)
+                    if (disposing)
                     {
-                        if (this.CanWrite)
-                        {
-                            this.FinishUploadAsync().GetAwaiter().GetResult();
-                        }
+                        this.inner.Commit();
+                        this.inner.Dispose();
                     }
+
+                    this.disposed = true;
                 }
 
                 base.Dispose(disposing);
-            }
-
-            private async Task FinishUploadAsync()
-            {
-                await this.outer.Container.CreateIfNotExistsAsync().ConfigureAwait(false);
-                using (var stream = await this.outer.Container.GetBlockBlobReference(this.path).OpenWriteAsync().ConfigureAwait(false))
-                {
-                    this.inner.Position = 0;
-                    await this.inner.CopyToAsync(stream).ConfigureAwait(false);
-                    stream.Commit();
-                }
             }
         }
     }

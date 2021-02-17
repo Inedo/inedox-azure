@@ -7,7 +7,7 @@ using Inedo.Extensibility;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Inedo, LLC")]
 [assembly: AssemblyProduct("ProGet")]
-[assembly: AssemblyCopyright("Copyright © Inedo 2020")]
+[assembly: AssemblyCopyright("Copyright © Inedo 2021")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
