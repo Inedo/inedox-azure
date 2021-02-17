@@ -64,7 +64,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             if (!await this.Container.ExistsAsync(cancellationToken).ConfigureAwait(false))
                 throw new FileNotFoundException();
 
-            var file = await this.Container.GetBlobReferenceFromServerAsync(this.BuildPath(path), cancellationToken).ConfigureAwait(false);
+            var file = await this.Container.GetBlobReferenceFromServerAsync(path, cancellationToken).ConfigureAwait(false);
             await file.FetchAttributesAsync(cancellationToken).ConfigureAwait(false);
             return new PositionStream(await file.OpenReadAsync(cancellationToken).ConfigureAwait(false), file.Properties.Length);
         }
