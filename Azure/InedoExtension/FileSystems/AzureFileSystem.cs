@@ -257,26 +257,26 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             var blob = this.Container.GetBlockBlobReference(fileName);
             return Task.FromResult<UploadStream>(new BlobUploadStream(blob));
         }
-        public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
             int blockCount = 0;
-            if (context != null && context.Length >= 4)
-                blockCount = BitConverter.ToInt32(context, 0);
+            if (state != null && state.Length >= 4)
+                blockCount = BitConverter.ToInt32(state, 0);
 
             var blob = this.Container.GetBlockBlobReference(fileName);
             return Task.FromResult<UploadStream>(new BlobUploadStream(blob, blockCount));
         }
-        public override async Task CompleteResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        public override async Task CompleteResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
 
             int blockCount = 0;
-            if (context != null && context.Length >= 4)
-                blockCount = BitConverter.ToInt32(context, 0);
+            if (state != null && state.Length >= 4)
+                blockCount = BitConverter.ToInt32(state, 0);
 
             var blob = this.Container.GetBlockBlobReference(fileName);
 
@@ -290,7 +290,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                 await blob.PutBlockListAsync(Enumerable.Range(1, blockCount).Select(i => Convert.ToBase64String(BitConverter.GetBytes(i))), cancellationToken).ConfigureAwait(false);
             }
         }
-        public override Task CancelResumableUploadAsync(string fileName, byte[] context, CancellationToken cancellationToken = default)
+        public override Task CancelResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException(nameof(fileName));
