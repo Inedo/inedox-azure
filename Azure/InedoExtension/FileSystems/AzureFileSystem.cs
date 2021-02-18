@@ -304,6 +304,18 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             return blob.DeleteIfExistsAsync(cancellationToken);
         }
 
+        public override RichDescription GetDescription()
+        {
+            if (string.IsNullOrEmpty(this.ContainerName))
+                return base.GetDescription();
+
+            return new RichDescription(
+                "Azure (using the ",
+                new Hilite(this.ContainerName),
+                " blob container)"
+            );
+        }
+
         private IEnumerable<string> GetVirtualDirectories(string path)
         {
             return getNames().Distinct();
