@@ -291,7 +291,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             }
             else
             {
-                await blob.PutBlockListAsync(Enumerable.Range(1, blockCount).Select(i => Convert.ToBase64String(BitConverter.GetBytes(i))), cancellationToken).ConfigureAwait(false);
+                await blob.PutBlockListAsync(Enumerable.Range(0, blockCount).Select(i => Convert.ToBase64String(BitConverter.GetBytes(i))), cancellationToken).ConfigureAwait(false);
             }
         }
         public override Task CancelResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
