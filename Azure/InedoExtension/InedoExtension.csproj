@@ -8,8 +8,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.2" />
-    <PackageReference Include="Inedo.SDK" Version="1.11.0">
+    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.3" />
+    <PackageReference Include="Inedo.SDK" Version="1.13.0-ci.4">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>

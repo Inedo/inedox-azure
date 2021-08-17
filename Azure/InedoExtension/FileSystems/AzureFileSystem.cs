@@ -66,7 +66,11 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
 
             var file = await this.Container.GetBlobReferenceFromServerAsync(path, cancellationToken).ConfigureAwait(false);
             await file.FetchAttributesAsync(cancellationToken).ConfigureAwait(false);
-            return new PositionStream(await file.OpenReadAsync(cancellationToken).ConfigureAwait(false), file.Properties.Length);
+
+            if (hints.HasFlag(FileAccessHints.RandomAccess))
+                return new BufferedStream(new RandomAccessBlobStream(file), 32 * 1024);
+            else
+                return new PositionStream(await file.OpenReadAsync(cancellationToken).ConfigureAwait(false), file.Properties.Length);
         }
         public override async Task<Stream> CreateFileAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
         {
