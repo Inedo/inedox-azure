@@ -9,7 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.3" />
-    <PackageReference Include="Inedo.SDK" Version="1.13.0-ci.4">
+    <PackageReference Include="Inedo.SDK" Version="1.13.0-ci.10">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>

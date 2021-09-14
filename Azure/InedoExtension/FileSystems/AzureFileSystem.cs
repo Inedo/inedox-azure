@@ -254,6 +254,17 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                 return null;
             }
         }
+        public override Task<long?> GetDirectoryContentSizeAsync(string path, bool recursive, CancellationToken cancellationToken = default)
+        {
+            var path2 = this.BuildPath(path);
+            var directory = this.Container.GetDirectoryReference(path2);
+
+            return Task.FromResult<long?>(
+                directory.ListBlobs(true)
+                    .OfType<ICloudBlob>()
+                    .Sum(b => b.Properties.Length)
+            );
+        }
 
         public override Task<UploadStream> BeginResumableUploadAsync(string fileName, CancellationToken cancellationToken = default)
         {
