@@ -1,67 +1,79 @@
-﻿using Inedo.Extensibility.FileSystems;
+﻿using Azure.Storage.Blobs.Specialized;
+using Inedo.Extensibility.FileSystems;
 using Inedo.IO;
-using Microsoft.Azure.Storage.Blob;
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Inedo.ProGet.Extensions.Azure.PackageStores
 {
     internal sealed class BlobUploadStream : UploadStream
     {
         private const long MaxChunkSize = 50 * 1024 * 1024;
-        private readonly CloudBlockBlob blob;
+        private readonly BlockBlobClient client;
         private int chunkIndex;
         private readonly object syncLock = new();
         private TemporaryStream writeStream = new();
-        private Task uploadTask;
-        private int writeByteCalls;
+        private Task? uploadTask;
         private bool disposed;
 
-        public BlobUploadStream(CloudBlockBlob blob, int chunkIndex = 0)
+        public BlobUploadStream(BlockBlobClient client, int chunkIndex = 0)
         {
-            this.blob = blob;
+            this.client = client;
             this.chunkIndex = chunkIndex;
         }
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            this.writeStream.Write(buffer, 0, count);
-            this.IncrementBytesWritten(count);
-            this.CheckAndBeginBackgroundUpload();
+            ArgumentNullException.ThrowIfNull(buffer);
+            if (offset < 0)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            if (count < 0)
+                throw new ArgumentNullException(nameof(count));
+            if (offset + count > buffer.Length)
+                throw new ArgumentException("The sum of offset and count exceeded the bounds of the array.");
+
+            this.Write(buffer.AsSpan(offset, count));
         }
-        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            await this.writeStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
-            this.IncrementBytesWritten(count);
-            this.CheckAndBeginBackgroundUpload();
+            ArgumentNullException.ThrowIfNull(buffer);
+            if (offset < 0)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            if (count < 0)
+                throw new ArgumentNullException(nameof(count));
+            if (offset + count > buffer.Length)
+                throw new ArgumentException("The sum of offset and count exceeded the bounds of the array.");
+
+            return this.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         }
         public override void WriteByte(byte value)
         {
+            this.EnsureNotDisposed();
             this.writeStream.WriteByte(value);
             this.IncrementBytesWritten(1);
-
-            // don't do the check for every single byte in case this gets called a lot
-            this.writeByteCalls++;
-            if ((this.writeByteCalls % 1000) == 0)
-                this.CheckAndBeginBackgroundUpload();
+            this.CheckAndBeginBackgroundUpload();
         }
 
-        public override async Task<byte[]> CommitAsync(CancellationToken cancellationToken)
+        public override async Task<byte[]?> CommitAsync(CancellationToken cancellationToken)
         {
+            this.EnsureNotDisposed();
             await this.CompleteUploadAsync().ConfigureAwait(false);
             return BitConverter.GetBytes(this.chunkIndex);
         }
-#if !NET452
         public override void Write(ReadOnlySpan<byte> buffer)
         {
+            this.EnsureNotDisposed();
+            if (buffer.IsEmpty)
+                return;
+
             this.writeStream.Write(buffer);
             this.IncrementBytesWritten(buffer.Length);
             this.CheckAndBeginBackgroundUpload();
         }
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            this.EnsureNotDisposed();
+            if (buffer.IsEmpty)
+                return;
+
             await this.writeStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
             this.IncrementBytesWritten(buffer.Length);
             this.CheckAndBeginBackgroundUpload();
@@ -72,11 +84,9 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             {
                 await this.CompleteUploadAsync().ConfigureAwait(false);
                 await this.writeStream.DisposeAsync().ConfigureAwait(false);
-
                 this.disposed = true;
             }
         }
-#endif
 
         protected override void Dispose(bool disposing)
         {
@@ -96,7 +106,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
 
         private async Task CompleteUploadAsync()
         {
-            Task waitTask;
+            Task? waitTask;
             lock (this.syncLock)
             {
                 waitTask = this.uploadTask;
@@ -110,7 +120,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
                 this.writeStream.Position = 0;
                 int index = this.chunkIndex;
                 var data = BitConverter.GetBytes(index);
-                await this.blob.PutBlockAsync(Convert.ToBase64String(data), this.writeStream).ConfigureAwait(false);
+                await this.client.StageBlockAsync(Convert.ToBase64String(data), this.writeStream).ConfigureAwait(false);
                 this.chunkIndex++;
             }
         }
@@ -138,12 +148,17 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             try
             {
                 var data = BitConverter.GetBytes(chunkIndex);
-                await this.blob.PutBlockAsync(Convert.ToBase64String(data), source).ConfigureAwait(false);
+                await this.client.StageBlockAsync(Convert.ToBase64String(data), source).ConfigureAwait(false);
             }
             finally
             {
-                source.Dispose();
+                await source.DisposeAsync().ConfigureAwait(false);
             }
+        }
+        private void EnsureNotDisposed()
+        {
+            if (this.disposed)
+                throw new ObjectDisposedException(nameof(BlobUploadStream));
         }
     }
 }

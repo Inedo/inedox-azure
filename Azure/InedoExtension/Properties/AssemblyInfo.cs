@@ -7,7 +7,7 @@ using Inedo.Extensibility;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Inedo, LLC")]
 [assembly: AssemblyProduct("ProGet")]
-[assembly: AssemblyCopyright("Copyright © Inedo 2021")]
+[assembly: AssemblyCopyright("Copyright © Inedo 2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -15,4 +15,4 @@ using Inedo.Extensibility;
 
 [assembly: AssemblyVersion("1.0.1")]
 [assembly: AssemblyFileVersion("1.0.1")]
-[assembly: AppliesToAttribute(InedoProduct.ProGet)]
+[assembly: AppliesTo(InedoProduct.ProGet)] 
