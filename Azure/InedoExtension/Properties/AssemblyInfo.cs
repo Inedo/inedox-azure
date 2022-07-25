@@ -13,6 +13,6 @@ using Inedo.Extensibility;
 
 [assembly: ComVisible(false)]
 
-[assembly: AssemblyVersion("1.0.1")]
-[assembly: AssemblyFileVersion("1.0.1")]
+[assembly: AssemblyVersion("2.0.1")]
+[assembly: AssemblyFileVersion("2.0.1")]
 [assembly: AppliesTo(InedoProduct.ProGet)] 

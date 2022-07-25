@@ -16,7 +16,6 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
     [PersistFrom("Inedo.ProGet.Extensions.Azure.PackageStores.AzurePackageStore,Azure")]
     public sealed class AzureFileSystem : FileSystem
     {
-        private const long MaxSyncCopySize = 200 * 1024 * 1024;
         private static readonly LazyRegex MultiSlashPattern = new(@"/{2,}");
         private readonly Lazy<BlobContainerClient> blobContainerClient;
 
@@ -88,15 +87,8 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
 
             await target.DeleteIfExistsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
 
-            if ((await source.GetPropertiesAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value.ContentLength <= MaxSyncCopySize)
-            {
-                await target.SyncCopyFromUriAsync(source.Uri, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                var status = await target.StartCopyFromUriAsync(source.Uri, null, cancellationToken).ConfigureAwait(false);
-                await status.WaitForCompletionAsync(cancellationToken).ConfigureAwait(false);
-            }
+            var status = await target.StartCopyFromUriAsync(source.Uri, null, cancellationToken).ConfigureAwait(false);
+            await status.WaitForCompletionAsync(cancellationToken).ConfigureAwait(false);
         }
         public override async Task DeleteFileAsync(string fileName, CancellationToken cancellationToken = default)
         {
