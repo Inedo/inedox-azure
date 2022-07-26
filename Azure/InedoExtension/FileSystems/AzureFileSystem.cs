@@ -66,7 +66,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             var path = this.BuildPath(fileName);
             var blobClient = this.Container.GetBlobClient(path);
 
-            return blobClient.OpenWriteAsync(true, cancellationToken: cancellationToken);
+            return blobClient.OpenWriteAsync(true, options: new(), cancellationToken: cancellationToken);
         }
 
         public override async Task CopyFileAsync(string sourceName, string targetName, bool overwrite, CancellationToken cancellationToken = default)
@@ -270,7 +270,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores
             var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
             if (blockCount == 0)
             {
-                using var s = await client.OpenWriteAsync(true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                using var s = await client.OpenWriteAsync(true, options: new(), cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             else
             {
