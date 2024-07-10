@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.19.1" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.20.0" />
     <PackageReference Include="Inedo.SDK" Version="3.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
