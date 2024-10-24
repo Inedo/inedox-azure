@@ -11,7 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
-    <PackageReference Include="Inedo.SDK" Version="3.1.0-ci.7">
+    <PackageReference Include="Inedo.SDK" Version="3.1.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="System.Linq.Async" Version="6.0.1" />
