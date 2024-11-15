@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "inedo.extensionpackager": {
+      "version": "1.0.7",
+      "commands": [
+        "inedoxpack"
+      ],
+      "rollForward": false
+    }
+  }
+}
