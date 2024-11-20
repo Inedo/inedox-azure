@@ -9,7 +9,16 @@ public sealed partial class AzureFileSystemEditor : FileSystemEditor
     private readonly AhTextInput txtConnectionString = new() { Placeholder = "e.g. \"DefaultEndpointsProtocol=https;AccountName=account-name;AccountKey=account-key\"", ServerValidateIfNullOrEmpty = true };
     private readonly AhTextInput txtContainerName = new();
     private readonly AhTextInput txtTargetPath = new() { Placeholder = "e.g. \"my/path\" (defaults to root path)" };
-    private readonly AhTextInput txtContainerUri = new() { Placeholder = "e.g. \"https://your-blob-uri.blob.core.windows.net/your-container\"" };
+    private readonly AhTextInput txtContainerUri = new() 
+    { 
+        Placeholder = "e.g. \"https://your-blob-uri.blob.core.windows.net/your-container\"",
+        ServerValidate = val =>
+        {
+            if (Uri.TryCreate(val, UriKind.Absolute, out var _))
+                return true;
+            return new(false, "Must be a valid Uri");
+        }
+    };
     private readonly Select ddlConnectionType = new(new Option("Connection String", "str"), new Option("Azure Credential Chain", "acc"));
 
     protected override ISimpleControl CreateEditorControl()

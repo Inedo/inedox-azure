@@ -21,10 +21,11 @@ public sealed partial class AzureFileSystem : FileSystem
 
     public AzureFileSystem()
     {
-        if (string.IsNullOrEmpty(this.ContainerUri) || !Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl))
-            this.blobContainerClient = new (() => new (this.ConnectionString, this.ContainerName));
-        else
-            this.blobContainerClient = new(() => new(containerUrl, new DefaultAzureCredential()));
+        this.blobContainerClient = new(() => 
+            Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl) 
+                ? new(containerUrl, new DefaultAzureCredential()) 
+                : new(this.ConnectionString, this.ContainerName)
+            );
     }
 
     [Persistent(Encrypted = true)]
@@ -41,6 +42,9 @@ public sealed partial class AzureFileSystem : FileSystem
 
     private string? Prefix => string.IsNullOrEmpty(this.TargetPath) || this.TargetPath.EndsWith('/') ? this.TargetPath : (this.TargetPath + "/");
     private BlobContainerClient Container => this.blobContainerClient.Value;
+    private BlockBlobClient CreateBlockBlobClient(string path) => Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl)
+        ? new(new Uri(containerUrl, path), new DefaultAzureCredential())
+        : new(this.ConnectionString, path, this.ContainerName);
 
     public override async Task<Stream?> OpenReadAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
     {
@@ -241,7 +245,7 @@ public sealed partial class AzureFileSystem : FileSystem
             throw new ArgumentNullException(nameof(fileName));
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return Task.FromResult<UploadStream>(new BlobUploadStream(client));
     }
     public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -252,7 +256,7 @@ public sealed partial class AzureFileSystem : FileSystem
         int blockCount = DecodeBlockIndex(state);
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return Task.FromResult<UploadStream>(new BlobUploadStream(client, blockCount));
     }
     public override async Task CompleteResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -263,7 +267,7 @@ public sealed partial class AzureFileSystem : FileSystem
         int blockCount = DecodeBlockIndex(state);
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         if (blockCount == 0)
         {
             using var s = await client.OpenWriteAsync(true, options: new(), cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -279,7 +283,7 @@ public sealed partial class AzureFileSystem : FileSystem
             throw new ArgumentNullException(nameof(fileName));
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return client.DeleteIfExistsAsync(cancellationToken: cancellationToken);
     }
 
