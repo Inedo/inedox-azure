@@ -43,7 +43,7 @@ public sealed partial class AzureFileSystem : FileSystem
     private string? Prefix => string.IsNullOrEmpty(this.TargetPath) || this.TargetPath.EndsWith('/') ? this.TargetPath : (this.TargetPath + "/");
     private BlobContainerClient Container => this.blobContainerClient.Value;
     private BlockBlobClient CreateBlockBlobClient(string path) => Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl)
-        ? new(new Uri(containerUrl, path), new DefaultAzureCredential())
+        ? new BlobContainerClient(containerUrl, new DefaultAzureCredential()).GetBlockBlobClient(path)
         : new(this.ConnectionString, path, this.ContainerName);
 
     public override async Task<Stream?> OpenReadAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
