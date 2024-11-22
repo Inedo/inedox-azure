@@ -1,13 +1,11 @@
 ﻿using System.Buffers.Binary;
-using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
-using Inedo.Documentation;
 using Inedo.Extensibility.FileSystems;
 using Inedo.IO;
-using Inedo.Serialization;
 
 namespace Inedo.ProGet.Extensions.Azure.PackageStores;
 
@@ -15,6 +13,7 @@ namespace Inedo.ProGet.Extensions.Azure.PackageStores;
 [Description("A file system backed by Microsoft Azure Blob Storage.")]
 [PersistFrom("Inedo.ProGet.Extensions.PackageStores.Azure.AzurePackageStore,ProGetCoreEx")]
 [PersistFrom("Inedo.ProGet.Extensions.Azure.PackageStores.AzurePackageStore,Azure")]
+[CustomEditor(typeof(AzureFileSystemEditor))]
 public sealed partial class AzureFileSystem : FileSystem
 {
     private readonly Lazy<BlobContainerClient> blobContainerClient;
@@ -22,28 +21,30 @@ public sealed partial class AzureFileSystem : FileSystem
 
     public AzureFileSystem()
     {
-        this.blobContainerClient = new Lazy<BlobContainerClient>(() => new BlobContainerClient(this.ConnectionString, this.ContainerName));
+        this.blobContainerClient = new(() => 
+            Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl) 
+                ? new(containerUrl, new DefaultAzureCredential()) 
+                : new(this.ConnectionString, this.ContainerName)
+            );
     }
 
-    [Required]
     [Persistent(Encrypted = true)]
-    [DisplayName("Connection string")]
-    [Description("A Microsoft Azure connection string, like <code>DefaultEndpointsProtocol=https;AccountName=account-name;AccountKey=account-key</code>")]
     public string? ConnectionString { get; set; }
 
-    [Required]
     [Persistent]
-    [DisplayName("Container")]
-    [Description("The name of the Azure Blob Container that will receive the uploaded files.")]
     public string? ContainerName { get; set; }
 
     [Persistent]
-    [DisplayName("Target path")]
-    [Description("The path in the specified Azure Blob Container that will received the uploaded files; the default is the root.")]
     public string? TargetPath { get; set; }
+
+    [Persistent]
+    public string? ContainerUri { get; set; }
 
     private string? Prefix => string.IsNullOrEmpty(this.TargetPath) || this.TargetPath.EndsWith('/') ? this.TargetPath : (this.TargetPath + "/");
     private BlobContainerClient Container => this.blobContainerClient.Value;
+    private BlockBlobClient CreateBlockBlobClient(string path) => Uri.TryCreate(this.ContainerUri, UriKind.Absolute, out var containerUrl)
+        ? new BlobContainerClient(containerUrl, new DefaultAzureCredential()).GetBlockBlobClient(path)
+        : new(this.ConnectionString, path, this.ContainerName);
 
     public override async Task<Stream?> OpenReadAsync(string fileName, FileAccessHints hints = FileAccessHints.Default, CancellationToken cancellationToken = default)
     {
@@ -244,7 +245,7 @@ public sealed partial class AzureFileSystem : FileSystem
             throw new ArgumentNullException(nameof(fileName));
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return Task.FromResult<UploadStream>(new BlobUploadStream(client));
     }
     public override Task<UploadStream> ContinueResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -255,7 +256,7 @@ public sealed partial class AzureFileSystem : FileSystem
         int blockCount = DecodeBlockIndex(state);
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return Task.FromResult<UploadStream>(new BlobUploadStream(client, blockCount));
     }
     public override async Task CompleteResumableUploadAsync(string fileName, byte[] state, CancellationToken cancellationToken = default)
@@ -266,7 +267,7 @@ public sealed partial class AzureFileSystem : FileSystem
         int blockCount = DecodeBlockIndex(state);
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         if (blockCount == 0)
         {
             using var s = await client.OpenWriteAsync(true, options: new(), cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -282,14 +283,16 @@ public sealed partial class AzureFileSystem : FileSystem
             throw new ArgumentNullException(nameof(fileName));
 
         var path = this.BuildPath(fileName);
-        var client = new BlockBlobClient(this.ConnectionString, this.ContainerName, path);
+        var client = this.CreateBlockBlobClient(path);
         return client.DeleteIfExistsAsync(cancellationToken: cancellationToken);
     }
 
     public override RichDescription GetDescription()
     {
         if (string.IsNullOrEmpty(this.ContainerName))
-            return base.GetDescription();
+            return new RichDescription(
+            "Azure (using Container URI)"
+        );
 
         return new RichDescription(
             "Azure (using the ",
