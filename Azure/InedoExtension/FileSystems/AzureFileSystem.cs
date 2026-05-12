@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Azure.Identity;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using Inedo.Extensibility.FileSystems;
 using Inedo.IO;
@@ -163,7 +164,7 @@ public sealed partial class AzureFileSystem : FileSystem
 
         var files = new List<string>();
 
-        await foreach (var b in this.Container.GetBlobsAsync(prefix: path, cancellationToken: cancellationToken).ConfigureAwait(false))
+        await foreach (var b in this.Container.GetBlobsAsync(traits: BlobTraits.None, states: BlobStates.None, prefix: path, cancellationToken: cancellationToken).ConfigureAwait(false))
             files.Add(b.Name);
 
         foreach (var file in files)
@@ -181,7 +182,7 @@ public sealed partial class AzureFileSystem : FileSystem
 
         var dirs = new HashSet<string>();
 
-        await foreach (var item in this.Container.GetBlobsByHierarchyAsync(delimiter: "/", prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
+        await foreach (var item in this.Container.GetBlobsByHierarchyAsync(traits: BlobTraits.None, states: BlobStates.None, delimiter: "/", prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
         {
             if (item.IsPrefix)
             {
@@ -224,12 +225,12 @@ public sealed partial class AzureFileSystem : FileSystem
 
         if (recursive)
         {
-            await foreach (var b in this.Container.GetBlobsAsync(prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
+            await foreach (var b in this.Container.GetBlobsAsync(traits: BlobTraits.None, states: BlobStates.None, prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
                 size += b.Properties.ContentLength.GetValueOrDefault();
         }
         else
         {
-            await foreach (var b in this.Container.GetBlobsByHierarchyAsync(delimiter: "/", prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
+            await foreach (var b in this.Container.GetBlobsByHierarchyAsync(traits: BlobTraits.None, states: BlobStates.None, delimiter: "/", prefix: path2, cancellationToken: cancellationToken).ConfigureAwait(false))
                 size += b.Blob?.Properties.ContentLength ?? 0;
         }
 
